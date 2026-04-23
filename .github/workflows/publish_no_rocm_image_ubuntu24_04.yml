@@ -38,6 +38,14 @@ jobs:
     with:
       DOCKER_FILE_NAME: no_rocm_image_ubuntu24_04_ocl_rt
       DOCKER_IMAGE_NAME: no_rocm_image_ubuntu24_04_ocl_rt
+  # Image with HIP compile-time headers for building rocisa C++ extension
+  # (TensileLite CI). No GPU runtime needed.
+  publish_no_rocm_image_ubuntu24_04_tensilelite:
+    needs: [publish_no_rocm_image_ubuntu24_04]
+    uses: ./.github/workflows/publish_dockerfile.yml
+    with:
+      DOCKER_FILE_NAME: no_rocm_image_ubuntu24_04_tensilelite
+      DOCKER_IMAGE_NAME: no_rocm_image_ubuntu24_04_tensilelite
   # The image no_rocm_image_ubuntu24_04_media is an extension of
   # no_rocm_image_ubuntu24_04, so make sure we rebuild the _media
   # version whenever the base version changes.
