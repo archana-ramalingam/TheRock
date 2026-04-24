@@ -394,8 +394,8 @@ def generate_control_file(pkg_info, deb_dir, config: PackageConfig):
         provides = process_name_field(pkg_info, "Provides", debian_replace_devel_name)
         replaces = process_name_field(pkg_info, "Replaces", debian_replace_devel_name)
         conflicts = process_name_field(pkg_info, "Conflicts", debian_replace_devel_name)
-        # Non-versioned package depends on versioned package itself
-        depends = resolve_versioned_dependencies([pkg_name], config, is_meta)
+        # Non-versioned package depends on versioned package(s)
+        depends = resolve_nonversioned_install_dependencies(pkg_info, config, is_meta)
 
     pkg_name = update_package_name(pkg_name, config)
 
@@ -673,8 +673,8 @@ def generate_spec_file(pkg_name, specfile, config: PackageConfig):
         provides = process_name_field(pkg_info, "Provides")
         obsoletes = process_name_field(pkg_info, "Obsoletes")
         conflicts = process_name_field(pkg_info, "Conflicts")
-        # Non-versioned package requires versioned package itself
-        requires = resolve_versioned_dependencies([pkg_name], config, is_meta)
+        # Non-versioned package requires versioned package(s)
+        requires = resolve_nonversioned_install_dependencies(pkg_info, config, is_meta)
 
     pkg_name = update_package_name(pkg_name, config)
 
@@ -934,6 +934,7 @@ def create_package_config(args: argparse.Namespace) -> PackageConfig:
         enable_rpath=args.rpath_pkg,
         enable_kpack=args.enable_kpack,
         gfxarch_list=tuple(gfxarch_list),
+        kpack_naming=getattr(args, "kpack_naming", KPACK_NAMING_LEGACY),
     )
 
 
@@ -1085,6 +1086,18 @@ def main(argv: list[str]):
         "--enable-kpack",
         action="store_true",
         help="Enable multi-architecture package generation",
+    )
+
+    p.add_argument(
+        "--kpack-naming",
+        type=str,
+        default=KPACK_NAMING_LEGACY,
+        choices=(KPACK_NAMING_LEGACY, KPACK_NAMING_HOST_DEVICE_META_V2),
+        help=(
+            "Kpack naming layout: 'legacy' (default) or 'host-device-meta-v2' "
+            "(generic versioned uses -host suffix; see APPROACH_kpack_host_device_naming.md). "
+            "Per-package 'KpackLayout' in package.json overrides when set."
+        ),
     )
 
     p.add_argument(

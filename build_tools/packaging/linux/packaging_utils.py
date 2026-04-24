@@ -19,6 +19,10 @@ from pathlib import Path
 # Used for creating a generic package in Multi arch mode
 GFX_GENERIC = "gfx_generic"
 
+# Kpack naming layouts (see docs/packaging/APPROACH_kpack_host_device_naming.md)
+KPACK_NAMING_LEGACY = "legacy"
+KPACK_NAMING_HOST_DEVICE_META_V2 = "host-device-meta-v2"
+
 
 # User inputs required for packaging
 # dest_dir - For saving the rpm/deb packages
@@ -48,6 +52,8 @@ class PackageConfig:
     versioned_pkg: bool = True
     enable_kpack: bool = False
     gfxarch_list: tuple = field(default_factory=tuple)
+    # legacy | host-device-meta-v2 (see APPROACH_kpack_host_device_naming.md)
+    kpack_naming: str = KPACK_NAMING_LEGACY
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -229,6 +235,28 @@ def is_gfxarch_package(pkg_info, enable_kpack=False):
     return is_key_defined(pkg_info, "Gfxarch")
 
 
+def uses_host_device_kpack_naming(pkg_info: dict | None, config: PackageConfig) -> bool:
+    """True when kpack host/device/meta-v2 naming applies to this package entry."""
+    if not pkg_info or not config.enable_kpack:
+        return False
+    if is_meta_package(pkg_info):
+        return False
+    layout = (pkg_info.get("KpackLayout") or "").strip().lower()
+    if layout in ("host-device-meta-v2", "v2"):
+        return True
+    if layout in ("legacy", "none", "0"):
+        return False
+    g = (getattr(config, "kpack_naming", None) or KPACK_NAMING_LEGACY).strip().lower()
+    return g in ("host-device-meta-v2", "v2")
+
+
+def _logical_name_with_kpack_host_suffix(pkg_name: str) -> str:
+    """Insert '-host' before '-devel' when present (logical / RPM-style name)."""
+    if pkg_name.endswith("-devel"):
+        return pkg_name[: -len("-devel")] + "-host-devel"
+    return f"{pkg_name}-host"
+
+
 def get_package_info(pkgname):
     """Retrieves package details from a JSON file for the given package name
 
@@ -386,13 +414,24 @@ def update_package_name(pkg_name, config: PackageConfig):
         pkg_suffix = f"-rpath{pkg_suffix}"
 
     pkg_info = get_package_info(pkg_name)
-    updated_pkgname = pkg_name
+    working = pkg_name
+    if (
+        config.versioned_pkg
+        and config.enable_kpack
+        and config.gfx_arch == GFX_GENERIC
+        and uses_host_device_kpack_naming(pkg_info, config)
+        and is_gfxarch_package(pkg_info, config.enable_kpack)
+    ):
+        working = _logical_name_with_kpack_host_suffix(pkg_name)
+
     if config.pkg_type.lower() == "deb":
-        updated_pkgname = debian_replace_devel_name(pkg_name)
+        updated_pkgname = debian_replace_devel_name(working)
+    else:
+        updated_pkgname = working
 
     updated_pkgname += pkg_suffix
 
-    if is_gfxarch_package(pkg_info, config.enable_kpack):
+    if pkg_info and is_gfxarch_package(pkg_info, config.enable_kpack):
         # For multi-arch mode, skip appending gfx_generic
         if config.enable_kpack and config.gfx_arch == GFX_GENERIC:
             pass  # Don't append gfx_generic in multi-arch mode
@@ -608,10 +647,11 @@ def move_packages_to_destination(pkg_name, config: PackageConfig):
     os.makedirs(config.dest_dir, exist_ok=True)
     print(f"Package name: {pkg_name}")
     PKG_DIR = Path(config.dest_dir) / config.pkg_type
+    match_prefix = update_package_name(
+        pkg_name, replace(config, versioned_pkg=True)
+    )
     if config.pkg_type.lower() == "deb":
         artifacts = list(PKG_DIR.glob("*.deb"))
-        # Replace -devel with -dev for debian packages
-        pkg_name = debian_replace_devel_name(pkg_name)
     else:
         artifacts = list(PKG_DIR.glob(f"*/RPMS/{platform.machine()}/*.rpm"))
 
@@ -620,7 +660,7 @@ def move_packages_to_destination(pkg_name, config: PackageConfig):
         file_path = Path(file_path)  # ensure it's a Path object
         file_name = file_path.name  # basename equivalent
 
-        if file_name.startswith(pkg_name):
+        if file_name.startswith(match_prefix):
             dest_file = Path(config.dest_dir) / file_name
 
             # if file exists, remove it first
@@ -802,6 +842,41 @@ def resolve_versioned_dependencies(dep_list, config: PackageConfig, is_meta):
         if is_meta:
             deps = append_version_suffix(deps, config)
     return deps
+
+
+def resolve_nonversioned_install_dependencies(
+    pkg_info: dict, config: PackageConfig, is_meta: bool
+) -> str:
+    """Depends:/Requires: for non-versioned packages (umbrella gfx meta under kpack v2).
+
+    Under host-device-meta-v2, a gfx library umbrella depends on the versioned
+    host package plus each versioned arch-specific device package. Metapackages
+    keep the existing resolve_versioned_dependencies path.
+    """
+    pkg_name = pkg_info.get("Package")
+    if is_meta:
+        return resolve_versioned_dependencies([pkg_name], config, is_meta=True)
+    if (
+        config.enable_kpack
+        and uses_host_device_kpack_naming(pkg_info, config)
+        and is_gfxarch_package(pkg_info, config.enable_kpack)
+    ):
+        parts = []
+        host_cfg = replace(config, versioned_pkg=True, gfx_arch=GFX_GENERIC)
+        parts.append(_single_versioned_dep_display_name(pkg_name, host_cfg))
+        for g in config.gfxarch_list:
+            arch_cfg = replace(config, versioned_pkg=True, gfx_arch=g)
+            parts.append(_single_versioned_dep_display_name(pkg_name, arch_cfg))
+        return ", ".join(parts)
+    return resolve_versioned_dependencies([pkg_name], config, is_meta=False)
+
+
+def _single_versioned_dep_display_name(logical: str, dep_config: PackageConfig) -> str:
+    """One logical amdrocm dep -> versioned display name (mirrors convert_to_versiondependency)."""
+    pkg_list, _ = get_package_list(dep_config.artifacts_dir)
+    if logical.startswith("amdrocm") and logical not in pkg_list:
+        return logical
+    return update_package_name(logical, dep_config)
 
 
 def has_artifact_for_arch(pkg_name, artifacts_dir, gfx_arch):
