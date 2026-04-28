@@ -152,7 +152,13 @@ class GitHubAPI:
 
         return headers
 
-    def _send_request_via_gh_cli(self, url: str, timeout_seconds: int) -> object:
+    def _send_request_via_gh_cli(
+        self,
+        url: str,
+        timeout_seconds: int,
+        method: str = "GET",
+        body: dict | None = None,
+    ) -> object:
         """Sends a GitHub API request using the gh CLI.
 
         Raises:
@@ -166,9 +172,19 @@ class GitHubAPI:
         # Strip the base URL to get the API path
         api_path = url.removeprefix("https://api.github.com")
 
+        cmd = [self._gh_cli_path, "api", api_path]
+        if method != "GET":
+            cmd += ["--method", method]
+        # Pass JSON body via stdin to avoid escaping issues with --field.
+        stdin_input: str | None = None
+        if body is not None:
+            cmd += ["--input", "-"]
+            stdin_input = json.dumps(body)
+
         try:
             result = subprocess.run(
-                [self._gh_cli_path, "api", api_path],
+                cmd,
+                input=stdin_input,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
@@ -197,18 +213,28 @@ class GitHubAPI:
                 f"gh api returned invalid JSON: {e.msg} at position {e.pos}"
             ) from e
 
-    def _send_request_via_rest_api(self, url: str, timeout_seconds: int) -> object:
+    def _send_request_via_rest_api(
+        self,
+        url: str,
+        timeout_seconds: int,
+        method: str = "GET",
+        body: dict | None = None,
+    ) -> object:
         """Sends a GitHub API request using the REST API directly.
 
         Raises:
             GitHubAPIError: If the request fails for any reason.
         """
         headers = self._get_request_headers()
-        request = Request(url, headers=headers)
+        data: bytes | None = None
+        if body is not None:
+            data = json.dumps(body).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+        request = Request(url, headers=headers, data=data, method=method)
 
         try:
             with urlopen(request, timeout=timeout_seconds) as response:
-                body = response.read().decode("utf-8")
+                response_body = response.read().decode("utf-8")
         except HTTPError as e:
             # Try to read the error response body for more context
             error_body = ""
@@ -246,18 +272,26 @@ class GitHubAPI:
             ) from e
 
         try:
-            return json.loads(body)
+            return json.loads(response_body)
         except json.JSONDecodeError as e:
             raise GitHubAPIError(
                 f"Invalid JSON response from {url}: {e.msg} at position {e.pos}"
             ) from e
 
-    def send_request(self, url: str, timeout_seconds: int = 300) -> object:
+    def send_request(
+        self,
+        url: str,
+        timeout_seconds: int = 300,
+        method: str = "GET",
+        body: dict | None = None,
+    ) -> object:
         """Sends a request to the given GitHub REST API URL.
 
         Args:
             url: Full GitHub API URL (e.g., https://api.github.com/repos/...)
             timeout_seconds: Request timeout in seconds (default 300).
+            method: HTTP method (GET, POST, PATCH, ...). Defaults to GET.
+            body: Optional JSON-serializable request body (for POST/PATCH).
 
         Returns:
             Parsed JSON response.
@@ -270,12 +304,16 @@ class GitHubAPI:
         auth_method = self.get_auth_method()
 
         if auth_method == GitHubAPI.AuthMethod.GH_CLI:
-            return self._send_request_via_gh_cli(url, timeout_seconds)
+            return self._send_request_via_gh_cli(
+                url, timeout_seconds, method=method, body=body
+            )
 
         if auth_method == GitHubAPI.AuthMethod.UNAUTHENTICATED:
             _log("Warning: No GitHub auth available, requests may be rate limited")
 
-        return self._send_request_via_rest_api(url, timeout_seconds)
+        return self._send_request_via_rest_api(
+            url, timeout_seconds, method=method, body=body
+        )
 
 
 # Module-level singleton with cached state.
@@ -415,6 +453,78 @@ def gha_send_request(url: str, timeout_seconds: int = 300) -> object:
             via the __cause__ attribute.
     """
     return _default_github_api.send_request(url, timeout_seconds=timeout_seconds)
+
+
+def gha_update_pr_comment(
+    pr_number: int | str,
+    marker: str,
+    body: str,
+    github_repository: str = "ROCm/TheRock",
+    timeout_seconds: int = 300,
+) -> dict:
+    """Updates an existing PR comment identified by `marker`, or creates one.
+
+    The marker (typically an HTML comment like
+    ``<!-- therock-report-manifest-diff -->``) must be embedded in `body` so
+    later calls can find and update the same comment in place. This avoids
+    spamming the PR with a new comment on every workflow run.
+
+    Args:
+        pr_number: PR (issue) number.
+        marker: Substring identifying the comment to update.
+        body: Full comment body (must contain `marker`).
+        github_repository: Repository in "owner/repo" format.
+        timeout_seconds: Request timeout per HTTP call.
+
+    Returns:
+        The comment object from the GitHub API response.
+
+    See: https://docs.github.com/en/rest/issues/comments
+    """
+    if marker not in body:
+        raise ValueError(
+            "gha_update_pr_comment: 'body' must contain 'marker' so future "
+            "runs can find the comment to update."
+        )
+
+    base = f"https://api.github.com/repos/{github_repository}"
+    list_url = f"{base}/issues/{pr_number}/comments?per_page=100"
+
+    existing_id: int | None = None
+    page = 1
+    while True:
+        page_url = f"{list_url}&page={page}"
+        comments = _default_github_api.send_request(
+            page_url, timeout_seconds=timeout_seconds
+        )
+        if not comments:
+            break
+        for comment in comments:
+            if marker in (comment.get("body") or ""):
+                existing_id = comment.get("id")
+                break
+        if existing_id is not None or len(comments) < 100:
+            break
+        page += 1
+
+    if existing_id is not None:
+        update_url = f"{base}/issues/comments/{existing_id}"
+        _log(f"Updating existing PR comment id={existing_id} on PR #{pr_number}")
+        return _default_github_api.send_request(
+            update_url,
+            timeout_seconds=timeout_seconds,
+            method="PATCH",
+            body={"body": body},
+        )
+
+    create_url = f"{base}/issues/{pr_number}/comments"
+    _log(f"Creating new PR comment on PR #{pr_number}")
+    return _default_github_api.send_request(
+        create_url,
+        timeout_seconds=timeout_seconds,
+        method="POST",
+        body={"body": body},
+    )
 
 
 def gha_query_workflow_run_by_id(github_repository: str, workflow_run_id: str) -> dict:

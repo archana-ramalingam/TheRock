@@ -53,21 +53,63 @@ on:
         required: false
         type: string
         default: 'main'
+  pull_request:
+    types: [labeled, synchronize, reopened]
 
 permissions:
   contents: read
+  pull-requests: write
+  id-token: write
 
 jobs:
   generate-report:
     name: Generate Manifest Diff Report
     runs-on: ubuntu-24.04
+    # Only run on PR events when the 'manifest-diff' label is present.
+    # workflow_dispatch / workflow_call events always run.
+    if: >-
+      github.event_name != 'pull_request'
+      || contains(github.event.pull_request.labels.*.name, 'manifest-diff')
     permissions:
       id-token: write
       contents: read
+      pull-requests: write
+    env:
+      # Per-event resolution. On PR events we use the PR head/base/number;
+      # otherwise these come from workflow_dispatch / workflow_call inputs.
+      END_REF: >-
+        ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.head.sha
+            || inputs.end_ref }}
+      START_REF: >-
+        ${{ github.event_name == 'pull_request'
+            && ''
+            || (inputs.start_ref || '') }}
+      PR_BASE_REF: >-
+        ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.base.ref
+            || '' }}
+      PR_NUMBER: >-
+        ${{ github.event_name == 'pull_request'
+            && github.event.pull_request.number
+            || '' }}
+      FIND_LAST_RUN: ${{ inputs.find_last_run || '' }}
+      ACCEPTED_STATUSES: ${{ inputs.accepted_statuses || 'success' }}
+      BRANCH: ${{ inputs.branch || 'main' }}
+      WORKFLOW_MODE_FLAG: >-
+        ${{ github.event_name != 'pull_request' && inputs.workflow_mode
+            && '--workflow-mode' || '' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # On PR events checkout the head SHA so build_manifest_schema can
+          # read .gitmodules at that commit; full history is still required
+          # for historical lookups.
+          ref: >-
+            ${{ github.event_name == 'pull_request'
+                && github.event.pull_request.head.sha
+                || '' }}
           fetch-depth: 0
 
       - name: Generate manifest diff report
@@ -75,12 +117,13 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 build_tools/generate_manifest_diff_report.py \
-            --end "${{ inputs.end_ref }}" \
-            --start "${{ inputs.start_ref || '' }}" \
-            --find-last-run "${{ inputs.find_last_run || '' }}" \
-            --accepted-statuses "${{ inputs.accepted_statuses }}" \
-            --branch "${{ inputs.branch }}" \
-            ${{ inputs.workflow_mode && '--workflow-mode' || '' }} \
+            --end "${END_REF}" \
+            --start "${START_REF}" \
+            --pr-base-ref "${PR_BASE_REF}" \
+            --find-last-run "${FIND_LAST_RUN}" \
+            --accepted-statuses "${ACCEPTED_STATUSES}" \
+            --branch "${BRANCH}" \
+            ${WORKFLOW_MODE_FLAG} \
             --output-dir reports
 
       - name: Configure AWS Credentials
@@ -92,9 +135,13 @@ jobs:
 
       - name: Upload Report to S3
         if: ${{ github.repository == 'ROCm/TheRock' }}
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           python3 build_tools/github_actions/upload_test_report_script.py \
             --run-id ${{ github.run_id }} \
             --amdgpu-family manifest-diff \
             --report-path reports \
-            --index-file-name index.html
+            --index-file-name index.html \
+            --pr-number "${PR_NUMBER}" \
+            --pr-comment-title "Manifest blame list"

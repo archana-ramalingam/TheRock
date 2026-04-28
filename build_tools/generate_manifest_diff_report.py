@@ -4,18 +4,22 @@ Compares submodule versions and generates HTML reports showing commit changes
 for each component between builds.
 
 Arguments:
-  --start                Start commit SHA or workflow run ID (required unless using --find-last-run)
+  --start                Start commit SHA or workflow run ID (required unless using --find-last-run or --pr-base-ref)
   --end                  End commit SHA or workflow run ID (required)
   --find-last-run        Workflow file to find last completed run (e.g., 'ci_nightly.yml')
   --accepted-statuses    Comma-separated conclusions accepted for --find-last-run
                          (default: 'success'; e.g. 'success,failure')
   --workflow-mode        Treat --start and --end as workflow run IDs instead of commit SHAs
+  --pr-base-ref          PR base branch ref. When set, --start is computed as the
+                         merge_base_commit.sha from the GitHub compare API
+                         (pr-base-ref...end). --end must be the PR head SHA.
 
 Example usage:
   python build_tools/generate_manifest_diff_report.py --start abc123 --end def456
   python build_tools/generate_manifest_diff_report.py --end def456 --find-last-run ci_nightly.yml
   python build_tools/generate_manifest_diff_report.py --end def456 --find-last-run ci_nightly.yml --accepted-statuses success,failure
   python build_tools/generate_manifest_diff_report.py --start 12345 --end 67890 --workflow-mode
+  python build_tools/generate_manifest_diff_report.py --end <pr-head-sha> --pr-base-ref main
 """
 
 # Standard library imports
@@ -201,6 +205,15 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
         help="Treat --start and --end as workflow run IDs instead of commit SHAs",
     )
     parser.add_argument(
+        "--pr-base-ref",
+        default=None,
+        help=(
+            "Base branch ref of a PR (e.g. 'main'). When set, --start is "
+            "ignored and computed as merge_base_commit.sha from the GitHub "
+            "compare API: {pr-base-ref}...{end}. --end must be the PR head SHA."
+        ),
+    )
+    parser.add_argument(
         "--branch",
         default="main",
         help="Branch to search for last workflow run (default: main)",
@@ -243,17 +256,45 @@ def resolve_commits(args: argparse.Namespace) -> tuple[str, str]:
     """Resolve start and end commit SHAs from arguments."""
     start = _optional_str(args.start)
     find_last = _optional_str(args.find_last_run)
+    pr_base_ref = _optional_str(args.pr_base_ref)
     end = _optional_str(args.end)
 
-    if start is None and find_last is None:
-        raise ValueError("--start is required unless --find-last-run is provided")
+    if start is None and find_last is None and pr_base_ref is None:
+        raise ValueError(
+            "--start is required unless --find-last-run or --pr-base-ref is provided"
+        )
     if end is None:
         raise ValueError("--end is required")
 
     therock_repo_full = f"{ROCM_ORG}/{THEROCK_REPO}"
 
-    # Resolve start commit
-    if find_last is not None:
+    # Resolve end commit first, since --pr-base-ref needs it for the compare API.
+    if args.workflow_mode:
+        workflow_info = gha_query_workflow_run_by_id(therock_repo_full, end)
+        end_sha = workflow_info.get("head_sha")
+    else:
+        end_sha = end
+
+    # Resolve start commit. Precedence: --pr-base-ref > --find-last-run > --start.
+    if pr_base_ref is not None:
+        # Use the GitHub compare API to derive the merge-base of the PR head
+        # and its base branch. This avoids any local `git merge-base`/`git fetch`.
+        # Branch names may contain '/' (e.g. 'release/foo' or stacked
+        # 'amd/hsivasun/...' bases); URL-encode the base segment so the REST
+        # path parses unambiguously.
+        encoded_base = urllib.parse.quote(pr_base_ref, safe="")
+        compare = gha_send_request(
+            f"{GITHUB_API_BASE}/{ROCM_ORG}/{THEROCK_REPO}"
+            f"/compare/{encoded_base}...{end_sha}"
+        )
+        merge_base = compare.get("merge_base_commit", {}).get("sha")
+        if not merge_base:
+            raise ValueError(
+                f"Could not resolve merge_base_commit.sha from compare "
+                f"{pr_base_ref}...{end_sha}"
+            )
+        start_sha = merge_base
+    elif find_last is not None:
         accepted_statuses = parse_accepted_statuses(args.accepted_statuses)
         last_run = gha_query_last_workflow_run(
             therock_repo_full,
@@ -272,13 +313,6 @@ def resolve_commits(args: argparse.Namespace) -> tuple[str, str]:
         start_sha = workflow_info.get("head_sha")
     else:
         start_sha = start
-
-    # Resolve end commit
-    if args.workflow_mode:
-        workflow_info = gha_query_workflow_run_by_id(therock_repo_full, end)
-        end_sha = workflow_info.get("head_sha")
-    else:
-        end_sha = end
 
     return start_sha, end_sha
 

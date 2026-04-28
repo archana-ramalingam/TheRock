@@ -218,12 +218,14 @@ class ResolveCommitsTest(unittest.TestCase):
         """--workflow-mode resolves both start and end from workflow run IDs."""
         args = parse_args(["--start", "123", "--end", "456", "--workflow-mode"])
 
+        # resolve_commits() resolves end before start so --pr-base-ref can use
+        # end_sha in the compare API; mirror that order here.
         with mock.patch(
             "generate_manifest_diff_report.gha_query_workflow_run_by_id"
         ) as mock_query:
             mock_query.side_effect = [
+                {"head_sha": "789xyz000111"},  # end workflow (resolved first)
                 {"head_sha": "abc123def456"},  # start workflow
-                {"head_sha": "789xyz000111"},  # end workflow
             ]
             start_sha, end_sha = resolve_commits(args)
 
@@ -294,12 +296,45 @@ class ResolveCommitsTest(unittest.TestCase):
         self.assertIn("ci_nightly.yml", str(ctx.exception))
         self.assertIn("success", str(ctx.exception))
 
+    def test_pr_base_ref_uses_compare_api_for_merge_base(self):
+        """--pr-base-ref calls compare API and uses merge_base_commit.sha as start."""
+        args = parse_args(["--end", "head_sha_abc", "--pr-base-ref", "release/v1.0"])
+
+        with mock.patch(
+            "generate_manifest_diff_report.gha_send_request"
+        ) as mock_request:
+            mock_request.return_value = {
+                "merge_base_commit": {"sha": "merge_base_sha_xyz"}
+            }
+            start_sha, end_sha = resolve_commits(args)
+
+        self.assertEqual(start_sha, "merge_base_sha_xyz")
+        self.assertEqual(end_sha, "head_sha_abc")
+        # Branch names with '/' must be URL-encoded in the compare path so the
+        # REST endpoint can disambiguate the {base}...{head} segments.
+        called_url = mock_request.call_args[0][0]
+        self.assertIn("/compare/release%2Fv1.0...head_sha_abc", called_url)
+
+    def test_pr_base_ref_missing_merge_base_raises(self):
+        """resolve_commits raises ValueError if compare returns no merge_base_commit.sha."""
+        args = parse_args(["--end", "head_sha", "--pr-base-ref", "main"])
+
+        with mock.patch(
+            "generate_manifest_diff_report.gha_send_request",
+            return_value={},
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                resolve_commits(args)
+
+        self.assertIn("merge_base_commit", str(ctx.exception))
+
     def test_missing_start_and_find_last_run_raises(self):
-        """resolve_commits requires either --start or --find-last-run."""
+        """resolve_commits requires --start, --find-last-run, or --pr-base-ref."""
         args = parse_args(["--end", "def456"])
         with self.assertRaises(ValueError) as ctx:
             resolve_commits(args)
         self.assertIn("--find-last-run", str(ctx.exception))
+        self.assertIn("--pr-base-ref", str(ctx.exception))
 
     def test_direct_commit_shas_no_api_calls(self):
         """Direct commit SHAs don't require API calls."""

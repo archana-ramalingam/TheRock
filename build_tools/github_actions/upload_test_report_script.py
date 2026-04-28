@@ -11,6 +11,7 @@ raw `aws s3 cp` calls and gain --output-dir / --dry-run support.
 
 import argparse
 import logging
+import os
 from pathlib import Path
 import platform
 import shlex
@@ -21,7 +22,10 @@ _BUILD_TOOLS_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_BUILD_TOOLS_DIR))
 
 from _therock_utils.workflow_outputs import WorkflowOutputRoot
-from github_actions.github_actions_api import gha_append_step_summary
+from github_actions.github_actions_api import (
+    gha_append_step_summary,
+    gha_update_pr_comment,
+)
 
 logging.basicConfig(level=logging.INFO)
 
@@ -113,6 +117,18 @@ def run(args: argparse.Namespace):
     ).https_url
     gha_append_step_summary(f"[Report (S3)]({report_url})")
 
+    if args.pr_number:
+        github_repository = os.environ.get("GITHUB_REPOSITORY", "ROCm/TheRock")
+        marker = f"<!-- therock-report-{args.amdgpu_family} -->"
+        title = args.pr_comment_title or args.amdgpu_family.replace("-", " ").title()
+        body = f"{marker}\n### {title} report\n\n[View report]({report_url})\n"
+        gha_update_pr_comment(
+            pr_number=args.pr_number,
+            marker=marker,
+            body=body,
+            github_repository=github_repository,
+        )
+
 
 def main(argv):
     parser = argparse.ArgumentParser(prog="upload_test_report")
@@ -149,6 +165,24 @@ def main(argv):
         type=str,
         required=True,
         help="index file name used for indexing test reports",
+    )
+
+    parser.add_argument(
+        "--pr-number",
+        type=str,
+        default="",
+        help=(
+            "If set, post or update a PR comment linking to the uploaded "
+            "report. Empty string is treated as unset (so the workflow can "
+            "pass ${{ ... }} expansions unconditionally)."
+        ),
+    )
+
+    parser.add_argument(
+        "--pr-comment-title",
+        type=str,
+        default=None,
+        help="Heading text for the PR comment (default: humanized --amdgpu-family).",
     )
 
     args = parser.parse_args(argv)

@@ -20,6 +20,7 @@ from github_actions_api import (
     gha_query_recent_branch_commits,
     gha_query_workflow_run_by_id,
     gha_query_workflow_runs_for_commit,
+    gha_update_pr_comment,
     is_authenticated_github_api_available,
 )
 
@@ -676,6 +677,85 @@ class GitHubActionsUtilsTest(unittest.TestCase):
         # Each limited result should also be a valid SHA
         for sha in commits_limited:
             self.assertRegex(sha, sha_pattern)
+
+
+class GhaUpdatePrCommentTest(unittest.TestCase):
+    """Tests for gha_update_pr_comment marker-based update-in-place behavior."""
+
+    MARKER = "<!-- therock-report-manifest-diff -->"
+    BODY = "<!-- therock-report-manifest-diff -->\n### Manifest report\n\n[link](x)\n"
+
+    def test_creates_comment_when_no_match(self):
+        """POSTs a new comment when no existing comment carries the marker."""
+        # First call (list comments) returns an empty page; the second call is
+        # the POST to create the comment.
+        list_response = []
+        create_response = {"id": 999, "body": self.BODY}
+
+        with mock.patch(
+            "github_actions_api._default_github_api.send_request",
+            side_effect=[list_response, create_response],
+        ) as mock_send:
+            result = gha_update_pr_comment(42, self.MARKER, self.BODY)
+
+        self.assertEqual(result, create_response)
+        # 2 calls: GET list, POST create
+        self.assertEqual(mock_send.call_count, 2)
+        # POST: method=POST, body={"body": ...}
+        post_kwargs = mock_send.call_args_list[1].kwargs
+        self.assertEqual(post_kwargs.get("method"), "POST")
+        self.assertEqual(post_kwargs.get("body"), {"body": self.BODY})
+        # POST URL is the issue comments collection endpoint on the default repo
+        post_url = mock_send.call_args_list[1].args[0]
+        self.assertIn("ROCm/TheRock/issues/42/comments", post_url)
+        self.assertNotIn("/issues/comments/", post_url)
+
+    def test_updates_existing_comment_when_marker_matches(self):
+        """PATCHes the existing comment when one carries the marker."""
+        existing = {"id": 555, "body": f"{self.MARKER}\nold body"}
+        list_response = [
+            {"id": 1, "body": "unrelated comment"},
+            existing,
+            {"id": 2, "body": "another unrelated"},
+        ]
+        update_response = {"id": 555, "body": self.BODY}
+
+        with mock.patch(
+            "github_actions_api._default_github_api.send_request",
+            side_effect=[list_response, update_response],
+        ) as mock_send:
+            result = gha_update_pr_comment(42, self.MARKER, self.BODY)
+
+        self.assertEqual(result, update_response)
+        self.assertEqual(mock_send.call_count, 2)
+        patch_kwargs = mock_send.call_args_list[1].kwargs
+        self.assertEqual(patch_kwargs.get("method"), "PATCH")
+        self.assertEqual(patch_kwargs.get("body"), {"body": self.BODY})
+        # PATCH URL targets the specific comment id
+        patch_url = mock_send.call_args_list[1].args[0]
+        self.assertIn("/issues/comments/555", patch_url)
+
+    def test_respects_explicit_github_repository(self):
+        """Non-default github_repository is honored."""
+        list_response = []
+        create_response = {"id": 1}
+
+        with mock.patch(
+            "github_actions_api._default_github_api.send_request",
+            side_effect=[list_response, create_response],
+        ) as mock_send:
+            gha_update_pr_comment(
+                42, self.MARKER, self.BODY, github_repository="ROCm/Other"
+            )
+
+        post_url = mock_send.call_args_list[1].args[0]
+        self.assertIn("ROCm/Other/issues/42/comments", post_url)
+
+    def test_raises_when_marker_not_in_body(self):
+        """The body must embed the marker so future runs can find the comment."""
+        with self.assertRaises(ValueError) as ctx:
+            gha_update_pr_comment(42, self.MARKER, "no marker here")
+        self.assertIn("must contain", str(ctx.exception))
 
 
 if __name__ == "__main__":

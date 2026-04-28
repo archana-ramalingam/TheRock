@@ -78,6 +78,58 @@ def gh_api(token, endpoint, method="GET", data=None):
     return response.json()
 
 
+# Label applied to bump PRs so that .github/workflows/manifest-diff.yml runs
+# automatically on the PR and posts a sticky blame-list report comment.
+MANIFEST_DIFF_LABEL = "manifest-diff"
+MANIFEST_DIFF_LABEL_COLOR = "0E8A16"
+MANIFEST_DIFF_LABEL_DESCRIPTION = "Run manifest-diff blame-list on this PR"
+
+
+def ensure_label_exists(
+    token,
+    repo,
+    name=MANIFEST_DIFF_LABEL,
+    color=MANIFEST_DIFF_LABEL_COLOR,
+    description=MANIFEST_DIFF_LABEL_DESCRIPTION,
+):
+    """Idempotently create a repository label.
+
+    Treats a 422 ``already_exists`` response as success so this is safe to
+    call on every bump even after the label has been created once.
+    """
+    url = f"https://api.github.com/repos/{repo}/labels"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    response = requests.post(
+        url,
+        headers=headers,
+        json={"name": name, "color": color, "description": description},
+    )
+    if response.ok:
+        print(f"[INFO] Created label '{name}' on {repo}")
+        return
+    if response.status_code == 422 and "already_exists" in response.text:
+        return
+    raise RuntimeError(
+        f"Failed to create label '{name}' on {repo}: "
+        f"{response.status_code} {response.text}"
+    )
+
+
+def add_label_to_pr(token, repo, pr_number, label=MANIFEST_DIFF_LABEL):
+    """Apply ``label`` to the given PR, creating the label first if missing."""
+    ensure_label_exists(token, repo, name=label)
+    gh_api(
+        token,
+        f"repos/{repo}/issues/{pr_number}/labels",
+        method="POST",
+        data={"labels": [label]},
+    )
+    print(f"[INFO] Applied label '{label}' to PR #{pr_number}")
+
+
 def latest_commit(repo, token):
     data = gh_api(token, f"repos/{repo}/commits")
     return data[0]["sha"]
@@ -238,13 +290,19 @@ def create_therock_bump(submodule, token):
         run(["git", "push", "origin", branch_name])
 
         # Create PR
-        gh_api(
+        pr_response = gh_api(
             token,
             f"repos/{THEROCK_REPO}/pulls",
             method="POST",
             data={"title": title, "head": branch_name, "base": "main", "body": body},
         )
-        print(f"[INFO] Created bump PR for {submodule}")
+        pr_number = pr_response["number"]
+        print(f"[INFO] Created bump PR #{pr_number} for {submodule}")
+
+        # Apply the manifest-diff label so .github/workflows/manifest-diff.yml
+        # generates a blame-list report on the PR automatically.
+        add_label_to_pr(token, THEROCK_REPO, pr_number)
+
         os.chdir(original_cwd)
 
 
