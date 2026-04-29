@@ -86,10 +86,14 @@ def execute_tests(env):
     if int(match.group(1)) == 0:
         raise RuntimeError("CTest discovered zero rocjpeg tests")
 
+    from test_utils import get_ctest_junit_path
+
     cmd = [
         "ctest",
         "--extra-verbose",
         "--output-on-failure",
+        "--output-junit",
+        str(get_ctest_junit_path("rocjpeg")),
     ]
     logging.info(f"++ Exec [{ROCJPEG_TEST_DIR}]$ {shlex.join(cmd)}")
     subprocess.run(cmd, cwd=ROCJPEG_TEST_DIR, check=True, env=env)

@@ -82,10 +82,12 @@ else:
     gtest_filter = f"{':'.join(include_tests)}:-{':'.join(exclude_tests)}"
     test_filter = [f"--gtest_filter={gtest_filter}"]
 
+from test_utils import get_gtest_output_arg
+
 # -----------------------------
 # Build command
 # -----------------------------
-cmd = [str(AMDSMITST_BIN)] + test_filter
+cmd = [str(AMDSMITST_BIN)] + test_filter + [get_gtest_output_arg("amdsmi")]
 
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")
 

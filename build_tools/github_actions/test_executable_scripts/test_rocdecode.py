@@ -87,10 +87,14 @@ def execute_tests(env):
     if int(match.group(1)) == 0:
         raise RuntimeError("CTest discovered zero rocdecode tests")
 
+    from test_utils import get_ctest_junit_path
+
     cmd = [
         "ctest",
         "--extra-verbose",
         "--output-on-failure",
+        "--output-junit",
+        str(get_ctest_junit_path("rocdecode")),
     ]
     logging.info(f"++ Exec [{ROCDECODE_TEST_DIR}]$ {shlex.join(cmd)}")
     subprocess.run(cmd, cwd=ROCDECODE_TEST_DIR, check=True, env=env)

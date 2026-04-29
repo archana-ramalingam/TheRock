@@ -14,6 +14,8 @@ AMDGPU_FAMILIES = os.getenv("AMDGPU_FAMILIES")
 
 logging.basicConfig(level=logging.INFO)
 
+from test_utils import get_ctest_junit_path
+
 cmd = [
     "ctest",
     "--test-dir",
@@ -23,6 +25,8 @@ cmd = [
     "8",
     "--timeout",
     "60",
+    "--output-junit",
+    str(get_ctest_junit_path("hipdnn")),
 ]
 
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")

@@ -92,6 +92,8 @@ def cmake_build():
 
 
 def execute_tests():
+    from test_utils import get_ctest_junit_path
+
     ctest_cmd = [
         "ctest",
         "--test-dir",
@@ -99,6 +101,8 @@ def execute_tests():
         "--parallel",
         "8",
         "--output-on-failure",
+        "--output-junit",
+        str(get_ctest_junit_path("rocprofiler_sdk")),
     ]
 
     logging.info(f"++ Exec [{ROCPROFILER_SDK_TESTS_PATH}]$ {shlex.join(ctest_cmd)}")

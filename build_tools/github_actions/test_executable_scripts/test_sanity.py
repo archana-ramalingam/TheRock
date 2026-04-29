@@ -30,6 +30,11 @@ if sys.platform == "win32":
     env["HIP_CLANG_PATH"] = str(output_artifacts_dir / "lib" / "llvm" / "bin")
     env["PATH"] = str(output_artifacts_dir / "bin") + os.pathsep + env.get("PATH", "")
 
+from test_utils import get_test_results_dir
+
+SHARD_INDEX = os.getenv("SHARD_INDEX", "1")
+junit_path = get_test_results_dir() / f"pytest-sanity-shard{SHARD_INDEX}.xml"
+
 cmd = [
     sys.executable,
     "-m",
@@ -37,6 +42,7 @@ cmd = [
     "tests/",
     "--log-cli-level=info",
     "--timeout=300",
+    f"--junit-xml={junit_path}",
 ]
 
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {' '.join(cmd)}")

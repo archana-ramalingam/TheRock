@@ -89,6 +89,8 @@ def run_tests(build_dir: Path):
     logging.info(f"++ Build: {shlex.join(build_cmd)}")
     subprocess.run(build_cmd, check=True, cwd=THEROCK_DIR, env=environ_vars)
 
+    from test_utils import get_ctest_junit_path
+
     test_cmd = [
         "ctest",
         "--test-dir",
@@ -98,6 +100,8 @@ def run_tests(build_dir: Path):
         "8",
         "--timeout",
         "120",
+        "--output-junit",
+        str(get_ctest_junit_path("hipdnn_install")),
     ]
     logging.info(f"++ Test: {shlex.join(test_cmd)}")
     subprocess.run(test_cmd, check=True, cwd=THEROCK_DIR, env=environ_vars)

@@ -42,11 +42,14 @@ tests_to_exclude = [
     "checkin_lapack/POTRF_FORTRAN.batched__float_complex/9",
 ]
 
+from test_utils import get_gtest_output_arg
+
 exclusion_list = ":".join(tests_to_exclude)
 
 cmd = [
     f"{THEROCK_BIN_DIR}/hipsolver-test",
     f"--gtest_filter=-{exclusion_list}",
+    get_gtest_output_arg("hipsolver"),
 ]
 
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")

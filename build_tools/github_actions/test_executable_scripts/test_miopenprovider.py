@@ -28,6 +28,8 @@ TEST_TO_IGNORE = {
 
 logging.basicConfig(level=logging.INFO)
 
+from test_utils import get_ctest_junit_path
+
 # If you increase the timeout here you need to also increase the timeout for the job
 # See file build_tools/github_actions/fetch_test_configurations.py and search for miopenprovider
 cmd = [
@@ -39,6 +41,8 @@ cmd = [
     "8",
     "--timeout",
     "1200",
+    "--output-junit",
+    str(get_ctest_junit_path("miopenprovider")),
 ]
 
 if AMDGPU_FAMILIES in TEST_TO_IGNORE and os_type in TEST_TO_IGNORE[AMDGPU_FAMILIES]:

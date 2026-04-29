@@ -47,11 +47,14 @@ if test_type == "quick":
 else:
     gtest_filter += "*quick*:-known_bug*"
 
+from test_utils import get_gtest_output_arg
+
 if AMDGPU_FAMILIES in TEST_TO_IGNORE and os_type in TEST_TO_IGNORE[AMDGPU_FAMILIES]:
     ignored_tests = TEST_TO_IGNORE[AMDGPU_FAMILIES][os_type]
     gtest_filter += ":" + ":".join(ignored_tests)
 
 cmd.append(gtest_filter)
+cmd.append(get_gtest_output_arg("hipsparse"))
 
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")
 subprocess.run(

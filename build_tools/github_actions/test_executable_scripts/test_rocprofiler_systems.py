@@ -44,13 +44,18 @@ pytest_package_exec = (
     rocm_base / "share" / "rocprofiler-systems" / "tests" / "rocprofsys-tests.pyz"
 )
 
+from test_utils import get_test_results_dir
+
+SHARD_INDEX = os.getenv("SHARD_INDEX", "1")
+junit_path = get_test_results_dir() / f"pytest-rocprofiler_systems-shard{SHARD_INDEX}.xml"
+
 cmd = [
     sys.executable,
     str(pytest_package_exec),
     # TODO: Once the corresponding tests are fixed, remove the lines below
     "-k",
     "not TestOpenMPTarget and not (TestTranspose and runtime_instrument) and not TestGPUConnect",
-    "--junit-xml=junit.xml",
+    f"--junit-xml={junit_path}",
     "--ci-mode",
     "--log-cli-level=info",
 ]

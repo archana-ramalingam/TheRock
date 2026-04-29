@@ -19,6 +19,8 @@ environ_vars["ROCM_PATH"] = str(ROCM_PATH)
 
 logging.basicConfig(level=logging.INFO)
 
+from test_utils import get_ctest_junit_path
+
 cmd = [
     "ctest",
     "--test-dir",
@@ -28,6 +30,8 @@ cmd = [
     "8",
     "--timeout",
     "600",
+    "--output-junit",
+    str(get_ctest_junit_path("hipkernelprovider")),
 ]
 
 # Determine test filter based on TEST_TYPE environment variable

@@ -82,10 +82,14 @@ if AMDGPU_FAMILIES in TEST_TO_IGNORE and os_type in TEST_TO_IGNORE[AMDGPU_FAMILI
 
 test_type = os.getenv("TEST_TYPE", "full")
 
+from test_utils import get_gtest_output_arg
+
 if test_type == "quick":
     environ_vars["GTEST_FILTER"] = ":".join(QUICK_TESTS) + ":" + exclude_filter
 else:
     environ_vars["GTEST_FILTER"] = exclude_filter
+
+cmd.append(get_gtest_output_arg("rocrtst"))
 
 logging.info(f"++ Exec [{cwd_dir}]$ {shlex.join(cmd)}")
 subprocess.run(cmd, cwd=cwd_dir, check=True, env=environ_vars)

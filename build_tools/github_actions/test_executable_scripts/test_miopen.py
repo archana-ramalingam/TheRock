@@ -283,6 +283,8 @@ else:
     )
 #############################################
 
-cmd = [f"{THEROCK_BIN_DIR}/miopen_gtest", test_filter]
+from test_utils import get_gtest_output_arg
+
+cmd = [f"{THEROCK_BIN_DIR}/miopen_gtest", test_filter, get_gtest_output_arg("miopen")]
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")
 subprocess.run(cmd, cwd=THEROCK_DIR, check=True, env=environ_vars)

@@ -24,6 +24,8 @@ environ_vars["GTEST_TOTAL_SHARDS"] = str(TOTAL_SHARDS)
 # If quick tests are enabled, we run quick tests only.
 # Otherwise, we run the normal test suite
 test_type = os.getenv("TEST_TYPE", "full")
+from test_utils import get_gtest_output_arg
+
 if test_type == "quick":
     test_filter = ["--smoketest"]
 else:
@@ -35,7 +37,7 @@ else:
         "0.02",
     ]
 
-cmd = [f"{THEROCK_BIN_DIR}/rocfft-test"] + test_filter
+cmd = [f"{THEROCK_BIN_DIR}/rocfft-test"] + test_filter + [get_gtest_output_arg("rocfft")]
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")
 subprocess.run(
     cmd,

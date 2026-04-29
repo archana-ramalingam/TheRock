@@ -15,6 +15,8 @@ logging.basicConfig(level=logging.INFO)
 
 fusilli_test_dir = THEROCK_BIN_DIR / "fusilli_plugin_test_infra"
 
+from test_utils import get_ctest_junit_path
+
 # Build the ctest command
 cmd = [
     "ctest",
@@ -25,6 +27,8 @@ cmd = [
     "8",
     "--timeout",
     "600",
+    "--output-junit",
+    str(get_ctest_junit_path("fusilliprovider")),
 ]
 
 # Set up environment variables

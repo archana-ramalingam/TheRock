@@ -82,6 +82,8 @@ QUICK_TESTS = [
     "-*basic_tests/rocrand_basic_tests.rocrand_create_destroy_generator_test/10*",
 ]
 
+from test_utils import get_ctest_junit_path
+
 cmd = [
     "ctest",
     "--test-dir",
@@ -93,6 +95,8 @@ cmd = [
     "900",
     "--repeat",
     "until-pass:3",
+    "--output-junit",
+    str(get_ctest_junit_path("rocrand")),
 ]
 
 # If quick tests are enabled, we run quick tests only.

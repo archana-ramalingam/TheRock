@@ -54,6 +54,8 @@ ctest_parallelism = "2"
 if AMDGPU_FAMILIES == "gfx1153":
     ctest_parallelism = "1"
 
+from test_utils import get_ctest_junit_path
+
 cmd = [
     "ctest",
     "--test-dir",
@@ -65,6 +67,8 @@ cmd = [
     timeout,
     "--exclude-regex",
     "|".join(TESTS_TO_IGNORE),
+    "--output-junit",
+    str(get_ctest_junit_path("rocwmma")),
 ]
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")
 

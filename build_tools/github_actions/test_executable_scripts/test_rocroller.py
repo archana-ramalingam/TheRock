@@ -100,9 +100,13 @@ if test_filter_arg:
 else:
     test_filter_arg = f"--gtest_filter=-{_exclude_str}"
 
+from test_utils import get_gtest_output_arg
+
 cmd = [str(test_bin)]
 if test_filter_arg:
     cmd.append(test_filter_arg)
+
+cmd.append(get_gtest_output_arg("rocroller"))
 
 extra = os.getenv("EXTRA_GTEST_ARGS", "")
 if extra:

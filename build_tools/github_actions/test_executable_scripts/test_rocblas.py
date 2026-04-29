@@ -38,7 +38,9 @@ else:
     # only running quick tests due to openBLAS issue: https://github.com/ROCm/TheRock/issues/1605
     test_filter = ["--yaml", f"{THEROCK_BIN_DIR}/rocblas_smoke.yaml"]
 
-cmd = [f"{THEROCK_BIN_DIR}/rocblas-test"] + test_filter
+from test_utils import get_gtest_output_arg
+
+cmd = [f"{THEROCK_BIN_DIR}/rocblas-test"] + test_filter + [get_gtest_output_arg("rocblas")]
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")
 
 subprocess.run(

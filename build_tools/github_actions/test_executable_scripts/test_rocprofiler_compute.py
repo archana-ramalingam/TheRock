@@ -59,6 +59,8 @@ def setup_env():
 
 
 def execute_tests():
+    from test_utils import get_ctest_junit_path
+
     # Sharding
     shard_index = int(os.getenv("SHARD_INDEX", "1")) - 1
     total_shards = int(os.getenv("TOTAL_SHARDS", "1"))
@@ -74,6 +76,8 @@ def execute_tests():
         f"{"|".join(EXCLUDED_TESTS)}",
         "--tests-information",
         f"{shard_index},,{total_shards}",
+        "--output-junit",
+        str(get_ctest_junit_path("rocprofiler_compute")),
     ]
 
     # If quick tests are enabled, we run quick tests only.

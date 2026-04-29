@@ -124,6 +124,8 @@ res_gen_cmd = [
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(res_gen_cmd)}")
 subprocess.run(res_gen_cmd, cwd=THEROCK_DIR, check=True, env=env_vars)
 
+from test_utils import get_ctest_junit_path
+
 # Run ctest with resource spec file
 cmd = [
     "ctest",
@@ -136,6 +138,8 @@ cmd = [
     resource_spec_file,
     "--timeout",
     "300",
+    "--output-junit",
+    str(get_ctest_junit_path("rocthrust")),
 ]
 
 # If quick tests are enabled, we run quick tests only.

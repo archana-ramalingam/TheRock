@@ -69,6 +69,8 @@ python_paths = [
 ]
 environ_vars["PYTHONPATH"] = os.pathsep.join(p for p in python_paths if p)
 
+from test_utils import get_ctest_junit_path
+
 # CTest runs both C++ (Catch2) tests and Python (pytest) tests
 cmd = [
     "ctest",
@@ -77,6 +79,8 @@ cmd = [
     "--output-on-failure",
     "--parallel",
     "8",
+    "--output-junit",
+    str(get_ctest_junit_path("origami")),
 ]
 
 if is_windows:

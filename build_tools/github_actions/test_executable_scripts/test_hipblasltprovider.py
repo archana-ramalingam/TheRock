@@ -13,6 +13,8 @@ THEROCK_DIR = SCRIPT_DIR.parent.parent.parent
 
 logging.basicConfig(level=logging.INFO)
 
+from test_utils import get_ctest_junit_path
+
 cmd = [
     "ctest",
     "--test-dir",
@@ -22,6 +24,8 @@ cmd = [
     "8",
     "--timeout",
     "600",
+    "--output-junit",
+    str(get_ctest_junit_path("hipblasltprovider")),
 ]
 
 # Determine test filter based on TEST_TYPE environment variable

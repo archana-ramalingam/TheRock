@@ -37,10 +37,12 @@ else:
         f"{THEROCK_DIR}/build/share/rocsparse/test/rocsparse_smoke.yaml",
     ]
 
+from test_utils import get_gtest_output_arg
+
 cmd = [
     f"{THEROCK_BIN_DIR}/rocsparse-test",
     "--matrices-dir",
     f"{OUTPUT_ARTIFACTS_DIR}/clients/matrices/",
-] + test_filter
+] + test_filter + [get_gtest_output_arg("rocsparse")]
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")
 subprocess.run(cmd, cwd=THEROCK_DIR, check=True, env=environ_vars)

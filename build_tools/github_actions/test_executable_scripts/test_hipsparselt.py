@@ -26,13 +26,15 @@ environ_vars["GTEST_TOTAL_SHARDS"] = str(TOTAL_SHARDS)
 # Otherwise, we run the normal test suite
 test_type = os.getenv("TEST_TYPE", "full")
 
+from test_utils import get_gtest_output_arg
+
 test_filter = []
 if test_type == "quick":
     test_filter.append("--gtest_filter=*smoke*")
 else:
     test_filter.append("--gtest_filter=*quick*")
 
-cmd = [f"{THEROCK_BIN_DIR}/hipsparselt-test"] + test_filter
+cmd = [f"{THEROCK_BIN_DIR}/hipsparselt-test"] + test_filter + [get_gtest_output_arg("hipsparselt")]
 
 logging.info(f"++ Exec [{THEROCK_DIR}]$ {shlex.join(cmd)}")
 subprocess.run(cmd, cwd=THEROCK_DIR, check=True, env=environ_vars)
