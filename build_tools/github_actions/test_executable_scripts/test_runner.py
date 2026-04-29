@@ -181,6 +181,8 @@ def build_ctest_command(category, gpu_arch, available_gpu_archs):
 
     Returns a list of command arguments suitable for subprocess.run()
     """
+    from test_utils import get_ctest_junit_path
+
     cmd = ["ctest", "-L", category]
 
     # Add common ctest parameters
@@ -197,6 +199,9 @@ def build_ctest_command(category, gpu_arch, available_gpu_archs):
             # Shards the tests by running a specific set of tests based on starting test (shard_index) and stride (total_shards)
             "--tests-information",
             f"{SHARD_INDEX},,{TOTAL_SHARDS}",
+            # Output JUnit XML for failed test reporting
+            "--output-junit",
+            str(get_ctest_junit_path(TEST_COMPONENT)),
         ]
     )
 

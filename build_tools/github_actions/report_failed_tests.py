@@ -3,173 +3,173 @@
 # SPDX-License-Identifier: MIT
 
 """
-Parse CTest/GTest/Catch2 output and report failed tests.
+Parse test results and report failed tests.
 
-This script reads a log file containing test output and extracts
+This script reads structured test output (JUnit XML, GTest JSON) and extracts
 the list of failed tests for reporting.
 
 Usage:
-    python report_failed_tests.py --log-file <path>
+    python report_failed_tests.py --results-dir <path>
 
 Supported formats:
-- CTest: "The following tests FAILED: 1 - test_name (Failed)"
-- GTest: "[  FAILED  ] TestSuite.TestName"
-- Catch2: "FAILED:" followed by test details
+- CTest JUnit XML: ctest-*.xml files (from --output-junit)
+- GTest JSON: gtest-*.json files (from --gtest_output=json:)
 """
 
 import argparse
 import json
-import re
 import sys
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 
-def parse_ctest_failures(content: str) -> list[str]:
-    """Parse CTest output for failed tests.
+def parse_junit_xml(xml_file: Path) -> list[str]:
+    """Parse a JUnit XML file and extract failed test names.
 
-    CTest outputs failures in the format:
-        The following tests FAILED:
-                  1 - test_name (Failed)
-                  2 - another_test (Timeout)
+    Args:
+        xml_file: Path to the JUnit XML file
+
+    Returns:
+        List of failed test names
     """
     failed_tests = []
 
-    # Find the "The following tests FAILED:" section
-    match = re.search(
-        r"The following tests FAILED:\s*\n((?:\s+\d+\s+-\s+.+\n?)+)", content
-    )
-    if match:
-        failures_block = match.group(1)
-        # Parse each failure line: "  1 - test_name (Failed)"
-        for line in failures_block.strip().split("\n"):
-            test_match = re.match(r"\s*\d+\s+-\s+(.+?)\s+\(", line)
-            if test_match:
-                failed_tests.append(test_match.group(1).strip())
-
-    return failed_tests
-
-
-def parse_gtest_failures(content: str) -> list[str]:
-    """Parse GTest output for failed tests.
-
-    GTest outputs failures in the format:
-        [  FAILED  ] TestSuite.TestName (X ms)
-    Or in the summary:
-        [  FAILED  ] TestSuite.TestName
-    Or parameterized tests:
-        [  FAILED  ] TestSuite/TestName/0 (X ms)
-    """
-    failed_tests = []
-
-    # Find all "[  FAILED  ]" lines with test names
-    # Match patterns like: TestSuite.TestName, TestSuite/TestName/0, etc.
-    # Test names contain word chars, dots, slashes, and may end with timing info
-    pattern = r"\[\s*FAILED\s*\]\s+([\w./]+)"
-    matches = re.findall(pattern, content)
-
-    # Deduplicate while preserving order
-    seen = set()
-    for match in matches:
-        test_name = match.strip()
-        # Skip numeric-only matches (these are summary counts like "2 tests")
-        if test_name.isdigit():
-            continue
-        if test_name not in seen:
-            seen.add(test_name)
-            failed_tests.append(test_name)
-
-    return failed_tests
-
-
-def parse_catch2_failures(content: str) -> list[str]:
-    """Parse Catch2 output for failed tests.
-
-    Catch2 outputs failures like:
-        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        test case name
-        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-        FAILED:
-    """
-    failed_tests = []
-
-    # Look for FAILED: markers and try to find the test case name before it
-    # Pattern: test name appears between ~~~ lines before FAILED:
-    pattern = r"~{10,}\s*\n\s*(.+?)\s*\n~{10,}[^~]*?FAILED:"
-    matches = re.findall(pattern, content, re.DOTALL)
-
-    seen = set()
-    for match in matches:
-        test_name = match.strip()
-        if test_name and test_name not in seen:
-            seen.add(test_name)
-            failed_tests.append(test_name)
-
-    return failed_tests
-
-
-def parse_failed_tests(log_file: Path) -> list[str]:
-    """Parse a log file and extract failed tests from test output."""
     try:
-        content = log_file.read_text(errors="replace")
-    except Exception as e:
-        print(f"Error reading {log_file}: {e}")
-        return []
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
 
+        # Handle both <testsuites> and <testsuite> as root
+        if root.tag == "testsuites":
+            testsuites = root.findall("testsuite")
+        elif root.tag == "testsuite":
+            testsuites = [root]
+        else:
+            return failed_tests
+
+        for testsuite in testsuites:
+            suite_name = testsuite.get("name", "")
+            for testcase in testsuite.findall("testcase"):
+                failure = testcase.find("failure")
+                error = testcase.find("error")
+
+                if failure is not None or error is not None:
+                    test_name = testcase.get("name", "unknown")
+                    classname = testcase.get("classname", "")
+
+                    # Build full test name
+                    if classname and classname != suite_name:
+                        full_name = f"{classname}.{test_name}"
+                    elif suite_name:
+                        full_name = f"{suite_name}.{test_name}"
+                    else:
+                        full_name = test_name
+
+                    failed_tests.append(full_name)
+
+    except ET.ParseError as e:
+        print(f"Warning: Failed to parse {xml_file}: {e}")
+    except Exception as e:
+        print(f"Warning: Error reading {xml_file}: {e}")
+
+    return failed_tests
+
+
+def parse_gtest_json(json_file: Path) -> list[str]:
+    """Parse a GTest JSON file and extract failed test names.
+
+    Args:
+        json_file: Path to the GTest JSON file
+
+    Returns:
+        List of failed test names
+    """
     failed_tests = []
+
+    try:
+        with open(json_file) as f:
+            data = json.load(f)
+
+        # GTest JSON structure:
+        # { "testsuites": [ { "name": "...", "testsuite": [ { "name": "...", "failures": [...] } ] } ] }
+        for testsuite in data.get("testsuites", []):
+            suite_name = testsuite.get("name", "")
+            for test in testsuite.get("testsuite", []):
+                # Check if test has failures
+                failures = test.get("failures", [])
+                if failures:
+                    test_name = test.get("name", "unknown")
+                    full_name = f"{suite_name}.{test_name}" if suite_name else test_name
+                    failed_tests.append(full_name)
+
+    except json.JSONDecodeError as e:
+        print(f"Warning: Failed to parse {json_file}: {e}")
+    except Exception as e:
+        print(f"Warning: Error reading {json_file}: {e}")
+
+    return failed_tests
+
+
+def find_and_parse_results(results_dir: Path) -> list[str]:
+    """Find and parse all test result files in the directory.
+
+    Args:
+        results_dir: Directory containing test result files
+
+    Returns:
+        List of all failed test names
+    """
+    all_failed_tests = []
     seen = set()
 
-    def add_unique(tests: list[str]):
-        for test in tests:
+    if not results_dir.exists():
+        print(f"Results directory not found: {results_dir}")
+        return all_failed_tests
+
+    # Parse JUnit XML files (from ctest)
+    for xml_file in results_dir.glob("ctest-*.xml"):
+        print(f"Parsing: {xml_file.name}")
+        failed = parse_junit_xml(xml_file)
+        for test in failed:
             if test not in seen:
                 seen.add(test)
-                failed_tests.append(test)
+                all_failed_tests.append(test)
 
-    # Parse GTest failures first (most specific)
-    gtest_failures = parse_gtest_failures(content)
-    add_unique(gtest_failures)
+    # Parse GTest JSON files
+    for json_file in results_dir.glob("gtest-*.json"):
+        print(f"Parsing: {json_file.name}")
+        failed = parse_gtest_json(json_file)
+        for test in failed:
+            if test not in seen:
+                seen.add(test)
+                all_failed_tests.append(test)
 
-    # Parse Catch2 failures
-    catch2_failures = parse_catch2_failures(content)
-    add_unique(catch2_failures)
-
-    # Parse CTest failures last
-    # If we already have gtest/catch2 failures, ctest failures are just wrapper names
-    ctest_failures = parse_ctest_failures(content)
-    if not failed_tests:
-        # Only add ctest failures if we didn't find more specific ones
-        add_unique(ctest_failures)
-
-    return failed_tests
+    return all_failed_tests
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Parse CTest/GTest/Catch2 output and report failed tests"
+        description="Parse test results and report failed tests"
     )
     parser.add_argument(
-        "--log-file",
+        "--results-dir",
         type=Path,
         required=True,
-        help="Path to log file containing test output",
+        help="Directory containing test result files (JUnit XML, GTest JSON)",
     )
 
     args = parser.parse_args()
 
-    if not args.log_file.exists():
-        print(f"Log file not found: {args.log_file}")
-        return 1
-
-    failed_tests = parse_failed_tests(args.log_file)
+    failed_tests = find_and_parse_results(args.results_dir)
 
     if failed_tests:
         print(f"\n{'='*60}")
         print(f"FAILED TESTS ({len(failed_tests)}):")
         print(f"{'='*60}")
         print(json.dumps(failed_tests, indent=2))
-        return 0  # Don't fail the step, just report
     else:
-        print("No failed tests found in log.")
-        return 0
+        print("\nNo failed tests found.")
+
+    return 0
 
 
 if __name__ == "__main__":

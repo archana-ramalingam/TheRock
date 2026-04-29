@@ -29,6 +29,8 @@ if is_asan():
 
 logging.basicConfig(level=logging.INFO)
 
+from test_utils import get_gtest_output_arg
+
 tests_to_exclude = [
     "*known_bug*",
     "_/getrs*",
@@ -40,6 +42,7 @@ exclusion_list = ":".join(tests_to_exclude)
 
 cmd = [
     f"{THEROCK_BIN_DIR}/hipblas-test",
+    get_gtest_output_arg("hipblas"),
 ]
 
 # If quick tests are enabled, we run quick tests only.

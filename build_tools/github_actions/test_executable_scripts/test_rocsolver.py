@@ -22,8 +22,11 @@ envion_vars = os.environ.copy()
 envion_vars["GTEST_SHARD_INDEX"] = str(int(SHARD_INDEX) - 1)
 envion_vars["GTEST_TOTAL_SHARDS"] = str(TOTAL_SHARDS)
 
+from test_utils import get_gtest_output_arg
+
 cmd = [
     f"{THEROCK_BIN_DIR}/rocsolver-test",
+    get_gtest_output_arg("rocsolver"),
 ]
 
 # If quick tests are enabled, we run quick tests only.

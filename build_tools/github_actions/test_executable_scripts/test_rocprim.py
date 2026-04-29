@@ -101,6 +101,7 @@ QUICK_TESTS = [
 shard_index = int(os.getenv("SHARD_INDEX", "1")) - 1
 total_shards = int(os.getenv("TOTAL_SHARDS", "1"))
 
+from test_utils import get_ctest_junit_path
 
 cmd = [
     "ctest",
@@ -116,6 +117,9 @@ cmd = [
     # shards the tests by running a specific set of tests based on starting test (shard_index) and stride (total_shards)
     "--tests-information",
     f"{shard_index},,{total_shards}",
+    # Output JUnit XML for failed test reporting
+    "--output-junit",
+    str(get_ctest_junit_path("rocprim")),
 ]
 
 if AMDGPU_FAMILIES in TEST_TO_IGNORE and os_type in TEST_TO_IGNORE[AMDGPU_FAMILIES]:
